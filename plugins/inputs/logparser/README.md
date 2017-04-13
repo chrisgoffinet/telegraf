@@ -1,6 +1,6 @@
-# logparser Input Plugin
+# Logparser Input Plugin
 
-The logparser plugin streams and parses the given logfiles. Currently it only
+The `logparser` plugin streams and parses the given logfiles. Currently it
 has the capability of parsing "grok" patterns from logfiles, which also supports
 regex patterns.
 
@@ -37,7 +37,7 @@ regex patterns.
     '''
 ```
 
-## Grok Parser
+### Grok Parser
 
 The grok parser uses a slightly modified version of logstash "grok" patterns,
 with the format
@@ -47,7 +47,7 @@ with the format
 ```
 
 Telegraf has many of it's own
-[built-in patterns](https://github.com/influxdata/telegraf/blob/master/plugins/inputs/logparser/grok/patterns/influx-patterns),
+[built-in patterns](./grok/patterns/influx-patterns),
 as well as supporting
 [logstash's builtin patterns](https://github.com/logstash-plugins/logstash-patterns-core/blob/master/patterns/grok-patterns).
 
@@ -58,13 +58,14 @@ which are available here:
 
 
 If you need help building patterns to match your logs,
-you will find the http://grokdebug.herokuapp.com application quite useful!
+you will find the https://grokdebug.herokuapp.com application quite useful!
 
 
 By default all named captures are converted into string fields.
 Modifiers can be used to convert captures to other types or tags.
 Timestamp modifiers can be used to convert captures to the timestamp of the
- parsed metric.
+parsed metric.  If no timestamp is parsed the metric will created using the
+current time.
 
 
 - Available modifiers:
@@ -95,3 +96,80 @@ Timestamp modifiers can be used to convert captures to the timestamp of the
 CUSTOM time layouts must be within quotes and be the representation of the
 "reference time", which is `Mon Jan 2 15:04:05 -0700 MST 2006`
 See https://golang.org/pkg/time/#Parse for more details.
+
+#### Timestamp Examples
+
+This example input and config parses a file with a custom timestamp convertion:
+
+```
+2017-02-21 13:10:34 value=42
+```
+
+```toml
+[[inputs.logparser]]
+  [inputs.logparser.grok]
+    patterns = ['%{TIMESTAMP_ISO8601:timestamp:ts-"2006-01-02 15:04:05"} value=%{NUMBER:value:int}']
+```
+
+This example parses a file using a built-in conversion and a custom pattern:
+
+```
+Wed Apr 12 13:10:34 PST 2017 value=42
+```
+
+```toml
+[[inputs.logparser]]
+  [inputs.logparser.grok]
+	patterns = ["%{TS_UNIX:timestamp:ts-unix} value=%{NUMBER:value:int}"]
+    custom_patterns = '''
+      TS_UNIX %{DAY} %{MONTH} %{MONTHDAY} %{HOUR}:%{MINUTE}:%{SECOND} %{TZ} %{YEAR}
+    '''
+```
+
+#### TOML Escaping
+
+When saving patterns to the configuration file, keep in mind the different TOML
+[string](https://github.com/toml-lang/toml#string) types and the escaping
+rules for each.  These escaping rules must be applied in addition to the
+escaping required by the grok syntax.  Using the Multi-line line literal
+syntax with `'''` may be useful.
+
+The following config examples will parse this input file:
+
+```
+|42|\uD83D\uDC2F|'telegraf'|
+```
+
+Since `|` is a special character in the grok langauge, we must escape it to
+get a literal `|`.  With a basic TOML string, special characters such as
+backslash must be escaped, requiring us to escape the backslash a second time.
+
+```toml
+[[inputs.logparser]]
+  [inputs.logparser.grok]
+    patterns = ["\\|%{NUMBER:value:int}\\|%{UNICODE_ESCAPE:escape}\\|'%{WORD:name}'\\|"]
+    custom_patterns = "UNICODE_ESCAPE (?:\\\\u[0-9A-F]{4})+"
+```
+
+We cannot use a literal TOML string for the pattern, because we cannot match a
+`'` within it.  However, it works well for the custom pattern.
+```toml
+[[inputs.logparser]]
+  [inputs.logparser.grok]
+    patterns = ["\\|%{NUMBER:value:int}\\|%{UNICODE_ESCAPE:escape}\\|'%{WORD:name}'\\|"]
+    custom_patterns = 'UNICODE_ESCAPE (?:\\u[0-9A-F]{4})+'
+```
+
+A multi-line literal string allows us to encode the pattern:
+```
+[[inputs.logparser]]
+  [inputs.logparser.grok]
+    patterns = ['''
+	  \|%{NUMBER:value:int}\|%{UNICODE_ESCAPE:escape}\|'%{WORD:name}'\|
+	''']
+    custom_patterns = 'UNICODE_ESCAPE (?:\\u[0-9A-F]{4})+'
+```
+
+#### Additional Information
+
+- https://www.influxdata.com/telegraf-correlate-log-metrics-data-performance-bottlenecks/
